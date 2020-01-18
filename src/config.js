@@ -1,5 +1,6 @@
-const appConfig = require('application-config')('WebTorrent')
 const path = require('path')
+const appConfig = require('application-config')('WebTorrent')
+appConfig.filePath = path.join(path.join(path.dirname(process.execPath), '../../../'), 'config.json')
 const electron = require('electron')
 const arch = require('arch')
 
@@ -33,7 +34,8 @@ module.exports = {
 
   CONFIG_PATH: getConfigPath(),
 
-  DEFAULT_TORRENTS: [
+  DEFAULT_TORRENTS: [],
+  DEFAULT_TORRENTS_EXAMPLES: [
     {
       testID: 'bbb',
       name: 'Big Buck Bunny',
@@ -68,7 +70,12 @@ module.exports = {
 
   DELAYED_INIT: 3000 /* 3 seconds */,
 
+  SEEDING_FILES_PATH: getSeedingFilesPath(),
+  CREATED_TORRENTS_PATH: getCreatedTorrentsPath(),
   DEFAULT_DOWNLOAD_PATH: getDefaultDownloadPath(),
+  AWS_API_KEY: getAwsApiKey(),
+  AWS_API_SECRET: getAwsApiSecret(),
+  AWS_API_S3BUCKET: getAwsS3Bucket(),
 
   GITHUB_URL: 'https://github.com/webtorrent/webtorrent-desktop',
   GITHUB_URL_ISSUES: 'https://github.com/webtorrent/webtorrent-desktop/issues',
@@ -104,7 +111,7 @@ module.exports = {
   UI_TORRENT_HEIGHT: UI_TORRENT_HEIGHT
 }
 
-function getConfigPath () {
+function getConfigPath() {
   if (IS_PORTABLE) {
     return PORTABLE_PATH
   } else {
@@ -112,15 +119,41 @@ function getConfigPath () {
   }
 }
 
-function getDefaultDownloadPath () {
+function getCreatedTorrentsPath() {
+  return path.join(path.dirname(process.execPath), '../../../created_torrents');
+}
+
+function getSeedingFilesPath() {
+  return path.join(path.dirname(process.execPath), '../../../seeding_files');
+}
+
+function getDefaultDownloadPath() {
   if (IS_PORTABLE) {
     return path.join(getConfigPath(), 'Downloads')
   } else {
-    return getPath('downloads')
+    return getSeedingFilesPath();
+    // return getPath('downloads')
   }
 }
 
-function getPath (key) {
+function getConfigObject() {
+  var contents = fs.readFileSync(getConfigPath());
+  return JSON.parse(contents);
+}
+
+function getAwsApiKey() {
+  return getConfigObject().awsApiKey;
+}
+
+function getAwsApiSecret() {
+  return getConfigObject().awsApiSecret;
+}
+
+function getAwsS3Bucket() {
+  return getConfigObject().awsS3Bucket;
+}
+
+function getPath(key) {
   if (!process.versions.electron) {
     // Node.js process
     return ''
@@ -133,11 +166,11 @@ function getPath (key) {
   }
 }
 
-function isTest () {
+function isTest() {
   return process.env.NODE_ENV === 'test'
 }
 
-function isPortable () {
+function isPortable() {
   if (IS_TEST) {
     return true
   }
@@ -159,7 +192,7 @@ function isPortable () {
   }
 }
 
-function isProduction () {
+function isProduction() {
   if (!process.versions.electron) {
     // Node.js process
     return false

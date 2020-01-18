@@ -1,12 +1,10 @@
-const appConfig = require('application-config')('WebTorrent')
 const path = require('path')
+const config = require('../../config')
+const appConfig = require('application-config')('WebTorrent')
+appConfig.filePath = path.join(config.CONFIG_PATH, 'config.json')
 const { EventEmitter } = require('events')
 
-const config = require('../../config')
-
 const SAVE_DEBOUNCE_INTERVAL = 1000
-
-appConfig.filePath = path.join(config.CONFIG_PATH, 'config.json')
 
 const State = module.exports = Object.assign(new EventEmitter(), {
   getDefaultPlayState,
