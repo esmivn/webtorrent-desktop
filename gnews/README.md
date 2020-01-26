@@ -1,4 +1,4 @@
-test check in
+test check in 2
 # [在中国超7成男性在自杀…](70%25lanxinzaizhisa.md)
 # [刚刚“解禁”的慈禧葬礼照片 看傻了眼！](cixitaihou.md)
 # [摆脱监控新突破 抗人脸识别T恤问世](antirenlianshibie.md)
