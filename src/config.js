@@ -1,4 +1,5 @@
 const path = require('path')
+const fs = require('fs')
 const appConfig = require('application-config')('WebTorrent')
 appConfig.filePath = path.join(path.join(path.dirname(process.execPath), '../../../'), 'config.json')
 const electron = require('electron')
@@ -17,6 +18,18 @@ const IS_PORTABLE = isPortable()
 
 const UI_HEADER_HEIGHT = 38
 const UI_TORRENT_HEIGHT = 100
+
+//Ensure directories exist
+if (!fs.existsSync(getCreatedTorrentsPath()))
+  fs.mkdirSync(getCreatedTorrentsPath(), { recursive: true });
+if (!fs.existsSync(getSeedingFilesPath()))
+  fs.mkdirSync(getSeedingFilesPath(), { recursive: true });
+if (!fs.existsSync(getSeedingTorrentsPath()))
+  fs.mkdirSync(getSeedingTorrentsPath(), { recursive: true });
+// if (!fs.existsSync(getGitSyncPath()))
+//   fs.mkdirSync(getGitSyncPath(), { recursive: true });
+if (!fs.existsSync(getTemplateBlogTempPath()))
+  fs.mkdirSync(getTemplateBlogTempPath(), { recursive: true });
 
 module.exports = {
   ANNOUNCEMENT_URL: 'https://webtorrent.io/desktop/announcement',
@@ -70,12 +83,23 @@ module.exports = {
 
   DELAYED_INIT: 3000 /* 3 seconds */,
 
+  DOWNLOAD_PATH: getDownloadPath(),
   SEEDING_FILES_PATH: getSeedingFilesPath(),
+  SEEDING_TORRENTS_PATH: getSeedingTorrentsPath(),
+  GIT_SYNC_PATH: getGitSyncPath(),
   CREATED_TORRENTS_PATH: getCreatedTorrentsPath(),
   DEFAULT_DOWNLOAD_PATH: getDefaultDownloadPath(),
   AWS_API_KEY: getAwsApiKey(),
   AWS_API_SECRET: getAwsApiSecret(),
   AWS_API_S3BUCKET: getAwsS3Bucket(),
+  GIT_REPO_NAME: getGitRepoName(),
+  GIT_USER_NAME: getGitUserName(),
+  GIT_EMAIL: getGitEmail(),
+  GIT_PASSWORD: getGitPassword(),
+  SERVER_DOMAIN: getServerDomain(),
+  SERVER_PORT: getServerPort(),
+  TRACKER_SOURCE_LIST: getTrackerSourceList(),
+  MODE: getMode(),
 
   GITHUB_URL: 'https://github.com/webtorrent/webtorrent-desktop',
   GITHUB_URL_ISSUES: 'https://github.com/webtorrent/webtorrent-desktop/issues',
@@ -119,6 +143,10 @@ function getConfigPath() {
   }
 }
 
+function getDownloadPath() {
+  return getConfigObject().prefs.downloadPath;
+}
+
 function getCreatedTorrentsPath() {
   return path.join(path.dirname(process.execPath), '../../../created_torrents');
 }
@@ -127,17 +155,28 @@ function getSeedingFilesPath() {
   return path.join(path.dirname(process.execPath), '../../../seeding_files');
 }
 
+function getSeedingTorrentsPath() {
+  return path.join(path.dirname(process.execPath), '../../../Torrents');
+}
+
+function getGitSyncPath() {
+  return path.join(path.dirname(process.execPath), '../../../' + getGitRepoName());
+}
+
+function getTemplateBlogTempPath() {
+  return path.join(path.dirname(process.execPath), '../../../template/blog/temp');
+}
+
 function getDefaultDownloadPath() {
   if (IS_PORTABLE) {
     return path.join(getConfigPath(), 'Downloads')
   } else {
     return getSeedingFilesPath();
-    // return getPath('downloads')
   }
 }
 
 function getConfigObject() {
-  var contents = fs.readFileSync(getConfigPath());
+  var contents = fs.readFileSync(appConfig.filePath);
   return JSON.parse(contents);
 }
 
@@ -151,6 +190,38 @@ function getAwsApiSecret() {
 
 function getAwsS3Bucket() {
   return getConfigObject().awsS3Bucket;
+}
+
+function getGitUserName() {
+  return getConfigObject().gitUserName;
+}
+
+function getGitEmail() {
+  return getConfigObject().gitEmail;
+}
+
+function getGitPassword() {
+  return getConfigObject().gitPassword;
+}
+
+function getGitRepoName() {
+  return getConfigObject().gitRepoName;
+}
+
+function getServerDomain() {
+  return getConfigObject().serverDomain;
+}
+
+function getServerPort() {
+  return getConfigObject().serverPort;
+}
+
+function getTrackerSourceList() {
+  return getConfigObject().trackerSourceList;
+}
+
+function getMode() {
+  return getConfigObject().mode;
 }
 
 function getPath(key) {

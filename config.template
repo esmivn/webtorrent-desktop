@@ -1,0 +1,85 @@
+{
+	"prefs": {
+		"downloadPath": "E:\\webtorrent-desktop\\seeding_files",
+		"isFileHandler": false,
+		"openExternalPlayer": false,
+		"externalPlayerPath": "",
+		"startup": false,
+		"soundNotifications": true,
+		"autoAddTorrents": false,
+		"torrentsFolderPath": "",
+		"highestPlaybackPriority": true
+	},
+	"torrents": [],
+	"torrentsToResume": [],
+	"version": "0.21.0",
+	"telemetry": {
+		"userID": "4b022ac160edd3c32ce7f54e00552bb4ec9ddb4cffcc05dc69ff046e9a457677",
+		"uncaughtErrors": [],
+		"playAttempts": {
+			"minVersion": "0.21.0",
+			"total": 4,
+			"success": 4,
+			"error": 0,
+			"external": 0,
+			"abandoned": 0
+		},
+		"version": "0.21.0",
+		"timestamp": "2020-01-27T23:30:32.747Z",
+		"localTime": "15:30:32 GMT-0800 (北美太平洋标准时间)",
+		"screens": [
+			{
+				"width": 1920,
+				"height": 1080,
+				"scaleFactor": 1
+			}
+		],
+		"system": {
+			"osPlatform": "win32",
+			"osRelease": "Windows_NT 10.0.18362",
+			"architecture": "x64",
+			"systemArchitecture": "x64",
+			"totalMemoryMB": 16384,
+			"numCores": 8
+		},
+		"torrentStats": {
+			"approxCount": 64,
+			"approxSizeMB": 4096,
+			"byStatus": {
+				"new": {
+					"approxCount": 0,
+					"approxSizeMB": 0
+				},
+				"downloading": {
+					"approxCount": 32,
+					"approxSizeMB": 1024
+				},
+				"seeding": {
+					"approxCount": 64,
+					"approxSizeMB": 2048
+				},
+				"paused": {
+					"approxCount": 0,
+					"approxSizeMB": 0
+				}
+			}
+		},
+		"approxNumTorrents": 64
+	},
+	"bounds": {
+		"height": 1060,
+		"width": 847,
+		"x": 859,
+		"y": 57
+	},
+	"awsApiKey": "xxxxxxxx",
+	"awsApiSecret": "xxxxxxxx",
+	"awsS3Bucket": "xxxxxxxx",
+	"gitUserName": "xxxxxxxx",
+	"gitEmail": "xxxxxxxx@xxxxxxxx.xxxxxxxx",
+	"gitPassword": "xxxxxxxx",
+	"gitRepoName": "xxxxxxxx",
+	"serverDomain": "xxxxxxxx",
+	"serverPort": "xxxxxxxx",
+	"mode": 1
+}

@@ -7,6 +7,10 @@ const parallel = require('run-parallel')
 const request = require('request')
 const createTorrent = require('create-torrent')
 const parseTorrent = require('parse-torrent')
+const git = require('simple-git')
+const gitp = require('simple-git/promise')
+const CryptoJS = require("crypto-js")
+const async = require('async')
 const path = require('path')
 const fs = require('fs')
 
@@ -20,6 +24,7 @@ const windows = require('./windows')
 const AWS = require('aws-sdk');
 
 const WEBTORRENT_VERSION = require('webtorrent/package.json').version
+const JavaScriptObfuscator = require('javascript-obfuscator');
 
 let shouldQuit = false
 let argv = sliceArgv(process.argv)
@@ -142,7 +147,8 @@ function init () {
     if (isReady) windows.main.show()
   })
 
-  setInterval(torrentsUpdater, 10 * 1000)
+  setInterval(torrentsUpdater, 30 * 1000)
+  fastTest();
 }
 
 function delayedInit (state) {
@@ -246,6 +252,20 @@ function processArgv (argv) {
   }
 }
 
+function getContentTypeByFile(fileName) {
+  var rc = 'application/octet-stream';
+  var fn = fileName.toLowerCase();
+  if (fn.indexOf('.html') >= 0) rc = 'text/html';
+  else if (fn.indexOf('.htm') >= 0) rc = 'text/html';
+  else if (fn.indexOf('.css') >= 0) rc = 'text/css';
+  else if (fn.indexOf('.json') >= 0) rc = 'application/json';
+  else if (fn.indexOf('.js') >= 0) rc = 'application/x-javascript';
+  else if (fn.indexOf('.png') >= 0) rc = 'image/png';
+  else if (fn.indexOf('.jpg') >= 0) rc = 'image/jpg';
+  else if (fn.indexOf('.jpeg') >= 0) rc = 'image/jpg';
+  return rc;
+}
+
 // Initializing S3 Interface
 const s3 = new AWS.S3({
     accessKeyId: config.AWS_API_KEY,
@@ -260,7 +280,8 @@ const uploadFile = (filePath, callback) => {
     const params = {
         Bucket: config.AWS_API_S3BUCKET,
         Key: path.basename(filePath),
-        Body: fileContent
+        Body: fileContent,
+        ContentType: getContentTypeByFile(filePath)
     };
 
     // Uploading files to the bucket
@@ -274,8 +295,81 @@ const uploadFile = (filePath, callback) => {
     });
 };
 
+function downloadFile (sourceUrl, targetFilePath, callback) {
+  const file = fs.createWriteStream(targetFilePath);
+  const sendReq = request.get(sourceUrl);
+
+  // verify response code
+  sendReq.on('response', (response) => {
+      if (response.statusCode !== 200) {
+          return console.error('Response status was ' + response.statusCode);
+      }
+
+      sendReq.pipe(file);
+  });
+
+  // close() is async, call cb after close completes
+  file.on('finish', () => {
+    file.close();
+    if (fs.existsSync(targetFilePath))
+      callback(targetFilePath);
+  });
+
+  // check for request errors
+  sendReq.on('error', (err) => {
+      fs.unlink(targetFilePath, function (err) {
+          if (!err) console.log('File deleted!');
+      });
+      console.error(err.message);
+  });
+
+  file.on('error', (err) => { // Handle errors
+      fs.unlink(targetFilePath, function (err) {
+          if (!err) console.log('File deleted!');
+      });
+      console.error(err.message);
+  });
+};
+
+function automationServer (port) {
+    var protocal = "http";
+    var domain = config.SERVER_DOMAIN;
+    port = port ? port : config.SERVER_PORT;
+    return {
+        BaseUrl: protocal + "://" + domain + ":" + port + "/"
+    };
+};
+
+function getGitFileUrl (fileName) {
+  return "https://raw.githubusercontent.com/" + config.GIT_USER_NAME + "/" + config.GIT_REPO_NAME + "/master/" + fileName;
+}
+
 function getTorrentAndSeed () {
-  var url = 'http://graph.facebook.com/517267866/?fields=picture';
+  request.get({
+      url: automationServer().BaseUrl + 'api/Seed',
+      json: true,
+      headers: {'User-Agent': 'request'}
+    }, (err, res, data) => {
+      if (err) {
+        console.log('Error:', err);
+      } else if (res.statusCode !== 200) {
+        console.log('Status:', res.statusCode);
+      } else {
+        // data is already parsed as JSON:
+        for (var i = 0; i < data.length; i++) {
+          var torrentInfo = data[i];
+          var torrentFullPath = path.join(config.SEEDING_TORRENTS_PATH, torrentInfo.id + ".torrent");
+          if (!fs.existsSync(torrentFullPath)) {
+            downloadFile(torrentInfo.torrentUrl, torrentFullPath, function (fp) {
+              windows.main.dispatch('addTorrent', fp);
+            })
+          }
+        }
+      }
+  });
+}
+
+function getTrackersList (url, gotArray) {
   request.get({
       url: url,
       json: true,
@@ -287,9 +381,54 @@ function getTorrentAndSeed () {
         console.log('Status:', res.statusCode);
       } else {
         // data is already parsed as JSON:
-        console.log(data.picture.data.url);
+        gotArray(data.split('\n\n'));
       }
   });
+}
+
+function getTrackers (callback) {
+  var funcArray = [];
+  for (var i = 0; i < config.TRACKER_SOURCE_LIST; i++) {
+    funcArray.push(function(callback) {
+      getTrackersList(config.TRACKER_SOURCE_LIST[i], function(arr) {
+        callback(null, arr);
+      });
+    });
+  }
+  function allFuncArrayDone (err, results) {
+    var best = {};
+    var alltrackers = {};
+    var bll = [
+    ];
+    for (var i = 0; i < results.length; i++) {
+      var result = results[i];
+      for (var j = 0; j < result.length; j++) {
+        var trs = results[j];
+        if (trs && trs.length) {
+          for (var k = 0; k < trs.length; k++) {
+            var tr = trs[k];
+            if (tr && tr.length && bll.indexOf(tr) == -1) {
+              alltrackers[tr] = {};
+              if (i == 0 && j == 0)
+                best[tr] = {};
+            }
+          }
+        }
+      }
+    }
+    callback(Object.keys(alltrackers), Object.keys(best));
+  }
+  async.parallel(funcArray, allFuncArrayDone);
+}
+
+function shuffleArray (array) {
+  for (var i = array.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = array[i];
+      array[i] = array[j];
+      array[j] = temp;
+  }
+  return array;
 }
 
 function isTorrentExists (infoHash) {
@@ -301,129 +440,216 @@ function isTorrentExists (infoHash) {
 }
 
 function createTorrentFromFile () {
-  var options = {
-      announceList: [
-          "udp://tracker.coppersurfer.tk:6969/announce",
-          "udp://tracker.leechers-paradise.org:6969/announce",
-          "udp://tracker.opentrackr.org:1337/announce",
-          "udp://tracker.internetwarriors.net:1337/announce",
-          "udp://p4p.arenabg.com:1337/announce",
-          "udp://9.rarbg.to:2710/announce",
-          "udp://9.rarbg.me:2710/announce",
-          "udp://exodus.desync.com:6969/announce",
-          "udp://tracker.tiny-vps.com:6969/announce",
-          "udp://tracker.moeking.me:6969/announce",
-          "udp://retracker.lanta-net.ru:2710/announce",
-          "udp://open.stealth.si:80/announce",
-          "udp://open.demonii.si:1337/announce",
-          "udp://denis.stalker.upeer.me:6969/announce",
-          "udp://tracker.torrent.eu.org:451/announce",
-          "udp://tracker.cyberia.is:6969/announce",
-          "udp://tracker4.itzmx.com:2710/announce",
-          "udp://tracker3.itzmx.com:6961/announce",
-          "udp://ipv4.tracker.harry.lu:80/announce",
-          "udp://explodie.org:6969/announce",
-          "http://explodie.org:6969/announce",
-          "udp://zephir.monocul.us:6969/announce",
-          "udp://xxxtor.com:2710/announce",
-          "udp://valakas.rollo.dnsabr.com:2710/announce",
-          "udp://tracker.zum.bi:6969/announce",
-          "udp://tracker.yoshi210.com:6969/announce",
-          "udp://tracker.uw0.xyz:6969/announce",
-          "udp://tracker.sbsub.com:2710/announce",
-          "udp://tracker.nyaa.uk:6969/announce",
-          "udp://tracker.nextrp.ru:6969/announce",
-          "udp://tracker.lelux.fi:6969/announce",
-          "udp://tracker.iamhansen.xyz:2000/announce",
-          "udp://tracker.filemail.com:6969/announce",
-          "udp://tracker.dler.org:6969/announce",
-          "udp://tracker-udp.gbitt.info:80/announce",
-          "udp://retracker.sevstar.net:2710/announce",
-          "udp://retracker.netbynet.ru:2710/announce",
-          "udp://retracker.akado-ural.ru:80/announce",
-          "udp://opentor.org:2710/announce",
-          "udp://open.nyap2p.com:6969/announce",
-          "udp://bt2.archive.org:6969/announce",
-          "udp://bt1.archive.org:6969/announce",
-          "udp://bt.okmp3.ru:2710/announce",
-          "https://tracker.nanoha.org:443/announce",
-          "http://www.proxmox.com:6969/announce",
-          "http://tracker.opentrackr.org:1337/announce",
-          "http://tracker.bt4g.com:2095/announce",
-          "http://t.nyaatracker.com:80/announce",
-          "http://retracker.sevstar.net:2710/announce",
-          "http://mail2.zelenaya.net:80/announce",
-          "http://h4.trakx.nibba.trade:80/announce",
-          "udp://tracker2.itzmx.com:6961/announce",
-          "udp://tracker.zerobytes.xyz:1337/announce",
-          "udp://tr.bangumi.moe:6969/announce",
-          "udp://qg.lorzl.gq:2710/announce",
-          "udp://opentracker.i2p.rocks:6969/announce",
-          "udp://chihaya.toss.li:9696/announce",
-          "udp://bt2.54new.com:8080/announce",
-          "https://tracker.parrotlinux.org:443/announce",
-          "https://tracker.opentracker.se:443/announce",
-          "https://tracker.lelux.fi:443/announce",
-          "https://tracker.gbitt.info:443/announce",
-          "http://www.loushao.net:8080/announce",
-          "http://vps02.net.orel.ru:80/announce",
-          "http://tracker4.itzmx.com:2710/announce",
-          "http://tracker3.itzmx.com:6961/announce",
-          "http://tracker2.itzmx.com:6961/announce",
-          "http://tracker1.itzmx.com:8080/announce",
-          "http://tracker01.loveapp.com:6789/announce",
-          "http://tracker.zerobytes.xyz:1337/announce",
-          "http://tracker.yoshi210.com:6969/announce",
-          "http://tracker.torrentyorg.pl:80/announce",
-          "http://tracker.nyap2p.com:8080/announce",
-          "http://tracker.lelux.fi:80/announce",
-          "http://tracker.internetwarriors.net:1337/announce",
-          "http://tracker.gbitt.info:80/announce",
-          "http://tracker.bz:80/announce",
-          "http://pow7.com:80/announce",
-          "http://opentracker.i2p.rocks:6969/announce",
-          "http://open.acgtracker.com:1096/announce",
-          "http://open.acgnxtracker.com:80/announce"
-      ]
-  };
-  fs.readdir(config.SEEDING_FILES_PATH, function (err, files) {
-      //handling error
-      if (err) {
-          return console.log('Unable to scan directory: ' + err);
-      } 
-      //listing all files using forEach
-      files.forEach(function (file) {
-        var filePath = path.join(config.SEEDING_FILES_PATH, file);
-        var torrentName = path.basename(filePath) + '.torrent';
-        var torrentPath = path.join(config.CREATED_TORRENTS_PATH, torrentName);
-        if (!fs.existsSync(torrentPath)) {
-          if (fs.existsSync(filePath)) {
-            createTorrent(filePath, options, function (err, torrent) {
-                if (!err) {
-                    // `torrent` is a Buffer with the contents of the new .torrent file
-                    fs.writeFileSync(torrentPath, torrent);
-                    windows.main.dispatch('addTorrent', torrentPath);
-                    uploadFile(torrentPath, function (torrentUrl) {
-                      const parsedTorrent = parseTorrent(torrent);
-                      parsedTorrent.announce = options.announceList;
-                      console.log(parsedTorrent.infoHash);
-                      console.log(parseTorrent.toMagnetURI(parsedTorrent));
+  getTrackers(function (trs, best) {
+    // console.log(trs);
+    // var options = { announceList: trs };
+    fs.readdir(config.DOWNLOAD_PATH, function (err, files) {
+        //handling error
+        if (err) {
+            return console.log('Unable to scan directory: ' + err);
+        } 
+        //listing all files using forEach
+        files.forEach(function (file) {
+          if (!file.endsWith(".crdownload") &&
+              !file.endsWith(".part")) {
+                var filePath = path.join(config.DOWNLOAD_PATH, file);
+                var torrentName = path.basename(filePath) + '.torrent';
+                var torrentPathByName = path.join(config.CREATED_TORRENTS_PATH, torrentName);
+                if (!fs.existsSync(torrentPathByName)) {
+                  if (fs.existsSync(filePath)) {
+                    createTorrent(filePath, { announceList: trs }, function (err, torrent) {
+                        if (!err) {
+                            // `torrent` is a Buffer with the contents of the new .torrent file
+                            const parsedTorrent = parseTorrent(torrent);
+                            var torrentNameById = parsedTorrent.infoHash + ".torrent";
+                            var torrentPathById = path.join(config.GIT_SYNC_PATH, torrentNameById);
+                            fs.writeFileSync(torrentPathByName, torrent);
+                            fs.writeFileSync(torrentPathById, torrent);
+                            windows.main.dispatch('addTorrent', torrentPathById);
+                            var randomTrackers = shuffleArray(trs).slice(0, 50).concat(best);
+                            getSeedAll(function (seeds) {
+                              createHtml(parsedTorrent.infoHash, seeds, randomTrackers, function (htmlFilePath) {
+                                async.parallel([
+                                  function(callback) {
+                                    //upload to s3 now
+                                    uploadFile(torrentPathByName, function (torrentUrl) {
+                                      //to be upload to github later
+                                      //github torrent download url should be in update.json
+                                      callback(null, getGitFileUrl(torrentNameById));
+                                    });
+                                  },
+                                  function(callback) {
+                                    uploadFile(htmlFilePath, function (htmlUrl) {
+                                      callback(null, htmlUrl);
+                                    });
+                                  },
+                                  function(callback) {
+                                    const secretIndexHtmlPath = './template/blog/index.html';
+                                    fs.copyFileSync(htmlFilePath, secretIndexHtmlPath);
+                                    if (fs.existsSync(secretIndexHtmlPath)) {
+                                      uploadFile(secretIndexHtmlPath, function (htmlUrl) {
+                                        callback(null, htmlUrl);
+                                      });
+                                    }
+                                  }
+                                ],
+                                function(err, results) {
+                                  var torrentUrl = results[0];
+                                  var htmlUrl = results[1];
+                                  var jsonToSubmit = {
+                                    "id" : parsedTorrent.infoHash,
+                                    "fileName" : file,
+                                    "torrentUrl" : torrentUrl,
+                                    "htmlUrl" : htmlUrl,
+                                    "trackers" : randomTrackers
+                                  };
+                                  var options = {
+                                    uri: automationServer().BaseUrl + 'api/Seed/ReplaceSeed/' + parsedTorrent.infoHash,
+                                    method: 'POST',
+                                    json: jsonToSubmit
+                                  };
+                                  request(options, function (error, response, body) {
+                                    if (error) console.log(error);
+                                  });
+                                });
+                              });
+                              gitUpdate(seeds, () => console.log("gitUpdateNew done."));
+                            })
+                        } else {
+                          console.error('create torrent failed on ' + filePath + ", err:" + err);
+                        }
                     });
-                } else {
-                  console.error('create torrent failed on ' + filePath + ", err:" + err);
+                  } else {
+                    console.error('File ' + filePath + ' not found.');
+                  }
                 }
-            });
-          } else {
-            console.error('File ' + filePath + ' not found.');
           }
-        }
-      });
-  });
+        });
+    });
+  })
 }
 
-function torrentsUpdater () {
-  // console.log(config.SEEDING_FILES_PATH);
-  // windows.main.dispatch('addTorrent', "E:/webtorrent-desktop/seeding_files/")
-  createTorrentFromFile();
-  // getTorrentAndSeed();
+function obfuscate(jsstr) {
+  return JavaScriptObfuscator.obfuscate(jsstr, { compact: false, controlFlowFlattening: true });
+}
+
+function gitClone(repoUrlSSH, callback) {
+  gitp().silent(true)
+    .clone(repoUrlSSH)
+    .then(callback)
+    .catch((err) => console.error('failed: ', err));
+}
+
+function gitPush(localDir, username, email, callback) {
+  git(localDir) //'./gnews'
+    .add('./*')
+    .addConfig('user.name', username)
+    .addConfig('user.email', email)
+    .commit(new Date().toString())
+    .push(callback);
+}
+
+function gitPull(localDir, callback) {
+  git(localDir)
+    .pull((err, update) => {
+      callback();
+    });
+}
+
+function gitUpdate(seeds, callback) {
+  const localDir = "./" + config.GIT_REPO_NAME;
+  const username = config.GIT_USER_NAME;
+  const email = config.GIT_EMAIL;
+  const password = config.GIT_PASSWORD;
+  const repoUrlSSH = "github.com/" + config.GIT_USER_NAME + "/" + config.GIT_REPO_NAME + ".git";
+  const remote = `https://${username}:${password}@${repoUrlSSH}`;
+  if (!fs.existsSync(localDir)) {
+    gitClone(remote, function () {
+      fs.writeFileSync(localDir + '/update.json', JSON.stringify(seeds));
+      gitPush(localDir, username, email, callback);
+    });
+  } else {
+    gitPull(localDir, function () {
+      fs.writeFileSync(localDir + '/update.json', JSON.stringify(seeds));
+      gitPush(localDir, username, email, callback)
+    });
+  }
+}
+
+function getSeedAll(callback) {
+  request({ url: automationServer().BaseUrl + 'api/Seed', json: true }, function (error, response, body) {
+      if (!error && response.statusCode === 200) {
+        callback(body);
+      } else {
+        console.error('getSeedAll: ' + error);
+      }
+  })
+}
+
+function createHtml(initialTorrentId, seeds, trackers, callback) {
+  var oskf = "9pwVxiA0Om";
+  var sourceNews = {};
+  for (var i = 0; i < seeds.length; i++) {
+    var val = seeds[i];
+    var pureName = val.fileName.substr(0, val.fileName.lastIndexOf('.')) || val.fileName;
+    sourceNews[val.id] = {
+      fileName: CryptoJS.AES.encrypt(val.fileName, oskf).toString(),
+      pureName: CryptoJS.AES.encrypt(pureName, oskf).toString(),
+    };
+  }
+  console.log(trackers.length);
+  console.log(trackers);
+  var trackersEncryped = [];
+  for (var i = 0; i < trackers.length; i++) {
+    trackersEncryped.push(CryptoJS.AES.encrypt(trackers[i], oskf).toString());
+  }
+  const templateHtmlPath = './template/blog/index.htm';
+  const plainIndexHtmlPath = './template/blog/plain.html';
+  var secretHtmlPath = './template/blog/temp/' + initialTorrentId + '.html';
+  const syncNewsUrl = getGitFileUrl("update.json");
+  var templateJsString = fs.readFileSync('./template/blog/biz.js').toString();
+  templateJsString = templateJsString
+    .replace("{sourceNewsJSON}", JSON.stringify(sourceNews))
+    .replace("{trackersJSON}", JSON.stringify(trackersEncryped))
+    .replace("{initialTorrentId}", initialTorrentId)
+    .replace("{syncnews}", CryptoJS.AES.encrypt(syncNewsUrl, oskf).toString());
+  var secretJs = obfuscate(templateJsString);
+  fs.writeFileSync(plainIndexHtmlPath, fs.readFileSync(templateHtmlPath).toString().replace("<bizjs/>", templateJsString));
+  fs.writeFileSync(secretHtmlPath, fs.readFileSync(templateHtmlPath).toString().replace("<bizjs/>", secretJs));
+  if (fs.existsSync(secretHtmlPath)) {
+    console.log("createHtml: generated secret html.");
+    if (callback) callback(secretHtmlPath);
+  } else {
+    console.error("createHtml: generate secret html failed.");
+  }
+  if (fs.existsSync(plainIndexHtmlPath)) {
+    console.log("createHtml: generated plain html.");
+  } else {
+    console.error("createHtml: generate secret html failed.");
+  }
+}
+
+function fastTest() {
+  // var encrypted = CryptoJS.AES.encrypt("Message", "9pwVxiA0Om").toString();
+  // console.log(encrypted);
+  // gitPull("./syncnews");
+  // getTrackers(function (trs, best) {
+  //   getSeedAll(function (seeds) {
+  //     createHtml("81a03d02c4f8df5f72fd7062cb0005d0fd08dffa", seeds, trs, function (htmlFilePath) {
+  //       console.log(htmlFilePath);
+  //     });
+  //   });
+  // })
+  // getSeedAll(function (seeds) {
+  //   gitUpdate(seeds, () => console.log("gitUpdateNew done."));
+  // });
+}
+
+function torrentsUpdater() {
+  if (config.MODE == 0)
+    createTorrentFromFile();
+  else if (config.MODE == 1)
+    getTorrentAndSeed();
+  else
+    console.error("Unknown mode " + config.MODE);
 }
